@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: image-2-mobile-studio
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2
+      - key: OPENAI_API_KEY
+        sync: false
