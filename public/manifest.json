@@ -1,0 +1,9 @@
+{
+  "name": "Image 2 Studio",
+  "short_name": "Image 2",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fb",
+  "theme_color": "#f7f8fb",
+  "icons": []
+}
