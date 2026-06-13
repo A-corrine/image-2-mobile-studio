@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f8fb">
+    <title>Image 2 Studio</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">移动端生图</p>
+          <h1>Image 2 Studio</h1>
+        </div>
+        <div class="model-pill" id="modelPill">Image 2</div>
+      </header>
+
+      <section class="preview-zone" aria-live="polite">
+        <div class="preview-frame" id="previewFrame">
+          <div class="empty-art" id="emptyArt">
+            <div class="empty-sky"></div>
+            <div class="empty-orbit one"></div>
+            <div class="empty-orbit two"></div>
+            <div class="empty-card a"></div>
+            <div class="empty-card b"></div>
+            <div class="empty-card c"></div>
+          </div>
+          <img id="resultImage" alt="生成结果" hidden>
+          <div class="loading-layer" id="loadingLayer" hidden>
+            <div class="loader"></div>
+            <span>生成中</span>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button class="icon-button" id="downloadButton" type="button" disabled title="下载">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+          </button>
+          <button class="icon-button" id="shareButton" type="button" disabled title="分享">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12h8m-4-4 4 4-4 4M5 5h5M5 19h5"/></svg>
+          </button>
+          <button class="icon-button" id="copyButton" type="button" disabled title="复制提示词">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h10v10H9zM5 5h10v10H5z"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <form class="composer" id="composer">
+        <label class="field-label" for="promptInput">提示词</label>
+        <div class="prompt-box">
+          <textarea id="promptInput" name="prompt" rows="5" maxlength="1200" placeholder="例如：雨夜里的未来咖啡馆，暖色窗光，行人撑透明伞，电影感街景"></textarea>
+          <div class="prompt-meta">
+            <button class="ghost-button" id="polishButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.7 4.7L18 10l-4.3 2.3L12 17l-1.7-4.7L6 10l4.3-2.3zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+              润色
+            </button>
+            <span id="charCount">0/1200</span>
+          </div>
+        </div>
+
+        <div class="chip-row" aria-label="快速题材">
+          <button type="button" class="chip" data-prompt="一张新锐护肤精华的手机海报，玻璃瓶置于水面，清透高光，留出标题空间">护肤海报</button>
+          <button type="button" class="chip" data-prompt="年轻创始人的半身肖像，晨光办公室，克制自信，真实杂志摄影">人物肖像</button>
+          <button type="button" class="chip" data-prompt="露营咖啡车停在山谷湖边，清晨薄雾，户外生活方式广告">生活方式</button>
+          <button type="button" class="chip" data-prompt="一款智能耳机的电商主图，悬浮构图，干净背景，材质清晰">电商主图</button>
+        </div>
+
+        <div class="control-block">
+          <span class="field-label">风格</span>
+          <div class="segmented two-line" role="radiogroup" aria-label="风格">
+            <label><input type="radio" name="style" value="photo" checked><span>摄影</span></label>
+            <label><input type="radio" name="style" value="poster"><span>海报</span></label>
+            <label><input type="radio" name="style" value="illustration"><span>插画</span></label>
+            <label><input type="radio" name="style" value="product"><span>产品</span></label>
+            <label><input type="radio" name="style" value="threeD"><span>3D</span></label>
+            <label><input type="radio" name="style" value="minimal"><span>极简</span></label>
+          </div>
+        </div>
+
+        <div class="control-grid">
+          <div class="control-block">
+            <span class="field-label">画幅</span>
+            <div class="segmented" role="radiogroup" aria-label="画幅">
+              <label><input type="radio" name="size" value="1024x1536" checked><span>竖图</span></label>
+              <label><input type="radio" name="size" value="1024x1024"><span>方图</span></label>
+              <label><input type="radio" name="size" value="1536x1024"><span>横图</span></label>
+            </div>
+          </div>
+
+          <div class="control-block">
+            <span class="field-label">质量</span>
+            <div class="segmented" role="radiogroup" aria-label="质量">
+              <label><input type="radio" name="quality" value="low"><span>快速</span></label>
+              <label><input type="radio" name="quality" value="medium" checked><span>标准</span></label>
+              <label><input type="radio" name="quality" value="high"><span>精细</span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-grid">
+          <div class="control-block">
+            <span class="field-label">格式</span>
+            <div class="segmented" role="radiogroup" aria-label="格式">
+              <label><input type="radio" name="format" value="png" checked><span>PNG</span></label>
+              <label><input type="radio" name="format" value="webp"><span>WebP</span></label>
+              <label><input type="radio" name="format" value="jpeg"><span>JPEG</span></label>
+            </div>
+          </div>
+
+          <div class="control-block">
+            <span class="field-label">背景</span>
+            <div class="segmented" role="radiogroup" aria-label="背景">
+              <label><input type="radio" name="background" value="auto" checked><span>自动</span></label>
+              <label><input type="radio" name="background" value="opaque"><span>实底</span></label>
+              <label><input type="radio" name="background" value="transparent"><span>透明</span></label>
+            </div>
+          </div>
+        </div>
+
+        <button class="generate-button" id="generateButton" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <span id="generateButtonText">生成图片</span>
+        </button>
+      </form>
+
+      <section class="history-section" id="historySection" hidden>
+        <div class="section-head">
+          <h2>最近作品</h2>
+          <button class="text-button" id="clearHistoryButton" type="button">清空</button>
+        </div>
+        <div class="history-grid" id="historyGrid"></div>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
