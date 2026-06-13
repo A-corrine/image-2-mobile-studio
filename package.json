@@ -1,0 +1,12 @@
+{
+  "name": "image-2-mobile-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mobile-first image generation product powered by OpenAI image models.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
