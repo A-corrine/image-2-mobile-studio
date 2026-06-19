@@ -10,6 +10,7 @@ loadEnvFile(path.join(rootDir, ".env"));
 const port = Number(process.env.PORT || 3000);
 const imageModel = process.env.OPENAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
 const apiKey = process.env.OPENAI_API_KEY;
+const apiBaseUrl = normalizeApiBaseUrl(process.env.OPENAI_BASE_URL || "https://api.openai.com");
 
 const sizes = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
 const qualities = new Set(["low", "medium", "high", "auto"]);
@@ -45,6 +46,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/config") {
       return sendJson(res, 200, {
         model: imageModel,
+        apiBaseUrl,
         sizes: Array.from(sizes),
         qualities: Array.from(qualities),
         formats: Array.from(formats),
@@ -74,6 +76,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, "0.0.0.0", () => {
   console.log(`Image 2 Studio is running at http://localhost:${port}`);
   console.log(`Model: ${imageModel}`);
+  console.log(`API base: ${apiBaseUrl}`);
 });
 
 async function handleGenerate(req, res) {
@@ -119,7 +122,7 @@ async function handleGenerate(req, res) {
   const timeout = setTimeout(() => controller.abort(), 120000);
 
   try {
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
+    const response = await fetch(buildApiUrl(apiBaseUrl, "/v1/images/generations"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -188,6 +191,23 @@ function cleanText(value, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function normalizeApiBaseUrl(value) {
+  const url = new URL(String(value || "").trim());
+  if (url.protocol !== "https:") {
+    throw new Error("OPENAI_BASE_URL must use HTTPS.");
+  }
+
+  return url.toString().replace(/\/+$/, "");
+}
+
+function buildApiUrl(baseUrl, pathname) {
+  if (baseUrl.endsWith("/v1") && pathname.startsWith("/v1/")) {
+    return `${baseUrl}${pathname.slice(3)}`;
+  }
+
+  return `${baseUrl}${pathname}`;
 }
 
 function serveStatic(pathname, res, headOnly) {
