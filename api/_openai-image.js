@@ -13,8 +13,10 @@ const stylePrompts = {
 };
 
 function getConfig() {
+  const apiBaseUrl = normalizeApiBaseUrl(process.env.OPENAI_BASE_URL || "https://api.openai.com");
   return {
     model: process.env.OPENAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2",
+    apiBaseUrl,
     hasApiKey: Boolean(process.env.OPENAI_API_KEY),
     sizes: Array.from(sizes),
     qualities: Array.from(qualities),
@@ -24,6 +26,7 @@ function getConfig() {
 
 async function generateImage(input) {
   const apiKey = process.env.OPENAI_API_KEY;
+  const apiBaseUrl = normalizeApiBaseUrl(process.env.OPENAI_BASE_URL || "https://api.openai.com");
   const config = getConfig();
 
   if (!apiKey) {
@@ -58,7 +61,7 @@ async function generateImage(input) {
   const timeout = setTimeout(() => controller.abort(), 55000);
 
   try {
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
+    const response = await fetch(buildApiUrl(apiBaseUrl, "/v1/images/generations"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -123,6 +126,25 @@ function cleanText(value, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function normalizeApiBaseUrl(value) {
+  const url = new URL(String(value || "").trim());
+  if (url.protocol !== "https:") {
+    const error = new Error("OPENAI_BASE_URL must use HTTPS.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return url.toString().replace(/\/+$/, "");
+}
+
+function buildApiUrl(baseUrl, pathname) {
+  if (baseUrl.endsWith("/v1") && pathname.startsWith("/v1/")) {
+    return `${baseUrl}${pathname.slice(3)}`;
+  }
+
+  return `${baseUrl}${pathname}`;
 }
 
 async function readBody(req) {
