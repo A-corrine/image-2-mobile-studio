@@ -34,6 +34,7 @@
 
 ```text
 OPENAI_API_KEY=你的 OpenAI API Key
+OPENAI_BASE_URL=https://openclaw-api.com
 OPENAI_IMAGE_MODEL=gpt-image-2
 ```
 
@@ -62,6 +63,7 @@ vercel deploy --prod
 
 ```text
 OPENAI_API_KEY=你的 OpenAI API Key
+OPENAI_BASE_URL=https://openclaw-api.com
 OPENAI_IMAGE_MODEL=gpt-image-2
 ```
 
