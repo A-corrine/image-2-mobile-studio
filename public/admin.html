@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8fb">
+    <title>运营概览 - Image 2 Studio</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="admin-page">
+      <header class="admin-header">
+        <div>
+          <p class="eyebrow">仅限管理员</p>
+          <h1>运营概览</h1>
+        </div>
+        <div class="admin-actions">
+          <button class="secondary-button" id="refreshAdminButton" type="button" hidden>刷新</button>
+          <button class="secondary-button" id="adminLogoutButton" type="button" hidden>退出</button>
+          <a class="back-link" href="/">返回工作台</a>
+        </div>
+      </header>
+
+      <form class="admin-login" id="adminLoginForm">
+        <label for="adminPasswordInput">管理员密码</label>
+        <input id="adminPasswordInput" type="password" autocomplete="current-password" minlength="16" required>
+        <button class="primary-button" type="submit">进入后台</button>
+        <p id="adminLoginStatus" role="status"></p>
+      </form>
+
+      <section id="adminDashboard" hidden>
+        <div class="metric-grid" id="metricGrid"></div>
+
+        <section class="admin-section">
+          <div class="admin-section-head">
+            <h2>收入汇总</h2>
+            <span id="adminUpdatedAt"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>币种</th><th>订单数</th><th>退款后金额</th></tr></thead>
+              <tbody id="revenueTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <h2>最近订单</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>时间</th><th>邮箱</th><th>金额</th><th>点数</th><th>状态</th><th>订单</th></tr></thead>
+              <tbody id="paymentTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/admin.js" defer></script>
+  </body>
+</html>

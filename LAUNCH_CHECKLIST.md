@@ -17,6 +17,7 @@ Render 环境变量：
 ```text
 BUSINESS_NAME=你的产品或经营者名称
 SUPPORT_EMAIL=真实客服邮箱
+ADMIN_PASSWORD=至少16位的独立随机密码
 ```
 
 ## 2. 配置持久数据
@@ -60,7 +61,7 @@ STRIPE_SECRET_KEY=sk_test_开头的密钥
 https://你的正式域名/api/stripe/webhook
 ```
 
-3. 只订阅：`checkout.session.completed`
+3. 订阅：`checkout.session.completed`、`charge.refunded`
 4. 把 Endpoint 的 Signing secret 填入 Render：
 
 ```text
@@ -70,6 +71,7 @@ STRIPE_WEBHOOK_SECRET=whsec_开头的密钥
 5. 暂时设置 `BILLING_ENABLED=true`，重新部署并完成测试订单。
 6. 验证支付后点数只增加一次；在 Stripe 重发同一事件，余额不得再次增加。
 7. 测试完成后先改回 `BILLING_ENABLED=false`。
+8. 完成一笔测试退款，确认后台订单状态变为“已退款”且对应点数只扣回一次。
 
 ## 5. 核对成本与售价
 
@@ -87,8 +89,9 @@ STRIPE_WEBHOOK_SECRET=whsec_开头的密钥
 2. 创建生产 Webhook，重新填写对应的 `whsec_`。
 3. 完成一笔真实小额订单。
 4. 核对订单金额、点数到账、生成扣点、失败退点、客服邮箱和政策页面。
-5. 确认数据库位于持久磁盘并完成备份方案。
-6. 最后设置：
+5. 打开 `/admin.html`，核对付款、退款后收入和最近订单。
+6. 确认数据库位于持久磁盘并完成备份方案。
+7. 最后设置：
 
 ```text
 BILLING_ENABLED=true

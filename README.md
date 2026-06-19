@@ -38,6 +38,8 @@
 - Stripe Checkout 点数包购买
 - Stripe webhook 幂等到账
 - 邮箱验证码登录与跨设备余额恢复
+- 退款事件同步扣回点数
+- 密码保护的运营与订单概览
 
 ## Vercel 部署
 
@@ -107,6 +109,7 @@ RESEND_API_KEY=Resend 后台的 re_ 密钥
 EMAIL_FROM=Image 2 Studio <login@你的已验证域名>
 BUSINESS_NAME=对外展示的产品或经营者名称
 SUPPORT_EMAIL=真实客服邮箱
+ADMIN_PASSWORD=至少16位的独立随机密码
 ```
 
 在 Stripe Workbench -> Webhooks 中添加生产环境回调地址：
@@ -115,7 +118,7 @@ SUPPORT_EMAIL=真实客服邮箱
 https://你的域名/api/stripe/webhook
 ```
 
-只订阅 `checkout.session.completed` 事件。测试完成后再把测试密钥切换为生产密钥。
+订阅 `checkout.session.completed` 和 `charge.refunded` 事件。前者负责支付到账，后者负责退款后幂等扣回对应点数。测试完成后再把测试密钥切换为生产密钥。
 
 `BILLING_ENABLED` 默认必须保持 `false`。只有在持久磁盘、生产 Webhook、退款政策和真实小额订单都验证完成后，才改为 `true` 开始收款。
 
@@ -137,3 +140,7 @@ Size: 1 GB
 应用通过 Resend 发送 6 位验证码。先在 Resend 验证发信域名，再把 `RESEND_API_KEY` 和 `EMAIL_FROM` 填入 Render。验证码 10 分钟有效，同一来源 15 分钟最多发送 3 次，连续输错 5 次后失效。
 
 购买接口要求账户先验证邮箱。用户在新设备使用同一邮箱登录时，匿名账户中的剩余点数会合并到邮箱账户，已购买余额不会被锁在原浏览器中。
+
+### 运营后台
+
+配置 `ADMIN_PASSWORD` 后访问 `/admin.html`。用户名固定为 `admin`，密码只保留在当前页面内存，刷新页面后需要重新输入。后台显示账户、点数、生成请求、退款后收入和最近订单；连续输错 10 次会暂时限流。

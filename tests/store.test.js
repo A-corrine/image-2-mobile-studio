@@ -36,6 +36,7 @@ test("payment crediting is idempotent", () => {
   store.ensureAccount(id, 0);
   const payment = {
     sessionId: "cs_test_once",
+    paymentIntent: "pi_test_once",
     accountId: id,
     amountTotal: 990,
     currency: "cny",
@@ -44,6 +45,29 @@ test("payment crediting is idempotent", () => {
   assert.equal(store.recordPayment(payment), true);
   assert.equal(store.recordPayment(payment), false);
   assert.equal(store.getAccount(id).credits, 10);
+});
+
+test("refund events remove credits once and update net revenue", () => {
+  const store = freshStore();
+  const id = "77777777-7777-4777-8777-777777777777";
+  store.ensureAccount(id, 0);
+  store.recordPayment({
+    sessionId: "cs_refund",
+    paymentIntent: "pi_refund",
+    accountId: id,
+    amountTotal: 1000,
+    currency: "cny",
+    credits: 10
+  });
+  assert.equal(store.recordRefund({ paymentIntent: "pi_refund", amountRefunded: 500, currency: "cny" }), true);
+  assert.equal(store.getAccount(id).credits, 5);
+  assert.equal(store.recordRefund({ paymentIntent: "pi_refund", amountRefunded: 500, currency: "cny" }), false);
+  assert.equal(store.recordRefund({ paymentIntent: "pi_refund", amountRefunded: 1000, currency: "cny" }), true);
+  assert.equal(store.getAccount(id).credits, 0);
+
+  const summary = store.getAdminSummary();
+  assert.equal(summary.revenue[0].net_amount, 0);
+  assert.equal(summary.recentPayments[0].status, "refunded");
 });
 
 test("Stripe webhook signatures are verified", () => {

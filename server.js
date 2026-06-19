@@ -20,6 +20,7 @@ const starterCredits = Math.max(0, Number(process.env.STARTER_CREDITS || 3));
 const billingLive = process.env.BILLING_ENABLED === "true";
 const businessName = cleanText(process.env.BUSINESS_NAME || "Image 2 Studio", 80);
 const supportEmail = normalizeEmail(process.env.SUPPORT_EMAIL);
+const adminPassword = String(process.env.ADMIN_PASSWORD || "");
 const publicAppUrl = normalizePublicUrl(
   process.env.PUBLIC_APP_URL ||
     (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : `http://localhost:${port}`)
@@ -38,6 +39,7 @@ const billing = createBilling({
 });
 const activeGenerations = new Set();
 const authRequestWindows = new Map();
+const adminFailureWindows = new Map();
 
 const sizes = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
 const qualities = new Set(["low", "medium", "high", "auto"]);
@@ -90,6 +92,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/account") {
       const account = getOrCreateAccount(req, res);
       return sendJson(res, 200, publicAccount(account));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/summary") {
+      if (!authorizeAdmin(req, res)) {
+        return;
+      }
+      return sendJson(res, 200, { ...store.getAdminSummary(), generatedAt: Date.now() });
     }
 
     if (req.method === "POST" && url.pathname === "/api/checkout") {
@@ -327,10 +336,22 @@ async function handleStripeWebhook(req, res) {
       store.ensureAccount(accountId, 0);
       store.recordPayment({
         sessionId: session.id,
+        paymentIntent: session.payment_intent,
         accountId,
         amountTotal: pack.amount,
         currency: pack.currency,
         credits: pack.credits
+      });
+    }
+  }
+
+  if (event.type === "charge.refunded") {
+    const charge = event.data && event.data.object;
+    if (charge && charge.payment_intent && charge.amount_refunded > 0 && charge.currency) {
+      store.recordRefund({
+        paymentIntent: charge.payment_intent,
+        amountRefunded: Number(charge.amount_refunded),
+        currency: String(charge.currency).toLowerCase()
       });
     }
   }
@@ -430,6 +451,49 @@ function normalizeEmail(value) {
     return "";
   }
   return email;
+}
+
+function authorizeAdmin(req, res) {
+  if (adminPassword.length < 16) {
+    sendJson(res, 503, { error: "管理后台尚未配置" });
+    return false;
+  }
+
+  const failureKey = trialKeyForRequest(req);
+  const now = Date.now();
+  const recent = (adminFailureWindows.get(failureKey) || []).filter((time) => time > now - 15 * 60 * 1000);
+  if (recent.length >= 10) {
+    sendJson(res, 429, { error: "登录尝试过多，请稍后再试" });
+    return false;
+  }
+
+  const authorization = String(req.headers.authorization || "");
+  let username = "";
+  let password = "";
+  if (authorization.startsWith("Basic ")) {
+    try {
+      const decoded = Buffer.from(authorization.slice(6), "base64").toString("utf8");
+      const separator = decoded.indexOf(":");
+      username = separator === -1 ? decoded : decoded.slice(0, separator);
+      password = separator === -1 ? "" : decoded.slice(separator + 1);
+    } catch {
+      password = "";
+    }
+  }
+
+  const expected = Buffer.from(adminPassword);
+  const received = Buffer.from(password || "");
+  const valid = username === "admin" && expected.length === received.length && crypto.timingSafeEqual(expected, received);
+  if (!valid) {
+    recent.push(now);
+    adminFailureWindows.set(failureKey, recent);
+    res.setHeader("WWW-Authenticate", 'Basic realm="Image 2 Studio Admin"');
+    sendJson(res, 401, { error: "管理员密码不正确" });
+    return false;
+  }
+
+  adminFailureWindows.delete(failureKey);
+  return true;
 }
 
 function hashLoginCode(email, code) {
