@@ -11,5 +11,7 @@ services:
         value: production
       - key: OPENAI_IMAGE_MODEL
         value: gpt-image-2
+      - key: OPENAI_BASE_URL
+        value: https://openclaw-api.com
       - key: OPENAI_API_KEY
         sync: false
