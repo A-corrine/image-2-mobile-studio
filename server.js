@@ -1,6 +1,9 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const { createStore } = require("./lib/store");
+const { createBilling } = require("./lib/billing");
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
@@ -11,6 +14,30 @@ const port = Number(process.env.PORT || 3000);
 const imageModel = process.env.OPENAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
 const apiKey = process.env.OPENAI_API_KEY;
 const apiBaseUrl = normalizeApiBaseUrl(process.env.OPENAI_BASE_URL || "https://api.openai.com");
+const appSecret = process.env.APP_SECRET || crypto.createHash("sha256").update(apiKey || "image-2-local-development").digest("hex");
+const databasePath = process.env.DATABASE_PATH || path.join(rootDir, "data", "app.db");
+const starterCredits = Math.max(0, Number(process.env.STARTER_CREDITS || 3));
+const billingLive = process.env.BILLING_ENABLED === "true";
+const businessName = cleanText(process.env.BUSINESS_NAME || "Image 2 Studio", 80);
+const supportEmail = normalizeEmail(process.env.SUPPORT_EMAIL);
+const publicAppUrl = normalizePublicUrl(
+  process.env.PUBLIC_APP_URL ||
+    (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : `http://localhost:${port}`)
+);
+const creditPacks = [
+  { id: "starter", name: "轻量包", credits: 10, amount: 990, currency: "cny", label: "¥9.90" },
+  { id: "creator", name: "创作包", credits: 50, amount: 2990, currency: "cny", label: "¥29.90" },
+  { id: "studio", name: "工作室包", credits: 120, amount: 5990, currency: "cny", label: "¥59.90" }
+];
+const store = createStore(databasePath);
+const billing = createBilling({
+  secretKey: process.env.STRIPE_SECRET_KEY,
+  webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  publicAppUrl,
+  packs: creditPacks
+});
+const activeGenerations = new Set();
+const authRequestWindows = new Map();
 
 const sizes = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
 const qualities = new Set(["low", "medium", "high", "auto"]);
@@ -50,12 +77,40 @@ const server = http.createServer(async (req, res) => {
         sizes: Array.from(sizes),
         qualities: Array.from(qualities),
         formats: Array.from(formats),
-        hasApiKey: Boolean(apiKey)
+        hasApiKey: Boolean(apiKey),
+        businessName,
+        supportEmail
       });
     }
 
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, model: imageModel });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/account") {
+      const account = getOrCreateAccount(req, res);
+      return sendJson(res, 200, publicAccount(account));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/checkout") {
+      return handleCheckout(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/request") {
+      return handleAuthRequest(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/verify") {
+      return handleAuthVerify(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+      clearAccountCookie(res);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/stripe/webhook") {
+      return handleStripeWebhook(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/generate") {
@@ -69,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(url.pathname, res, req.method === "HEAD");
   } catch (error) {
     console.error(error);
-    return sendJson(res, 500, { error: "Server error" });
+    return sendJson(res, error.statusCode || 500, { error: error.message || "Server error" });
   }
 });
 
@@ -108,6 +163,20 @@ async function handleGenerate(req, res) {
     .filter(Boolean)
     .join("\n\n");
 
+  const account = getOrCreateAccount(req, res);
+  const requestId = crypto.randomUUID();
+  if (activeGenerations.has(account.id)) {
+    return sendJson(res, 429, { error: "已有图片正在生成，请稍候" });
+  }
+  if (!store.debitCredits(account.id, 1, requestId)) {
+    return sendJson(res, 402, {
+      error: "点数不足，请先购买点数",
+      code: "INSUFFICIENT_CREDITS",
+      account: publicAccount(store.getAccount(account.id))
+    });
+  }
+  activeGenerations.add(account.id);
+
   const payload = {
     model: imageModel,
     prompt: finalPrompt,
@@ -136,12 +205,16 @@ async function handleGenerate(req, res) {
 
     if (!response.ok) {
       const message = data.error && data.error.message ? data.error.message : `OpenAI request failed with ${response.status}`;
-      return sendJson(res, response.status, { error: message, status: response.status });
+      const requestError = new Error(message);
+      requestError.statusCode = response.status;
+      throw requestError;
     }
 
     const item = data.data && data.data[0];
     if (!item || (!item.b64_json && !item.url)) {
-      return sendJson(res, 502, { error: "OpenAI returned no image data." });
+      const responseError = new Error("OpenAI returned no image data.");
+      responseError.statusCode = 502;
+      throw responseError;
     }
 
     const mime = outputFormat === "jpg" || outputFormat === "jpeg" ? "image/jpeg" : `image/${outputFormat}`;
@@ -155,14 +228,114 @@ async function handleGenerate(req, res) {
       revisedPrompt: item.revised_prompt || "",
       created: data.created || Math.floor(Date.now() / 1000),
       usage: data.usage || null,
-      options: { size, quality, outputFormat, background }
+      options: { size, quality, outputFormat, background },
+      account: publicAccount(store.getAccount(account.id))
     });
   } catch (error) {
+    store.refundCredits(account.id, 1, requestId);
     const message = error.name === "AbortError" ? "Image generation timed out." : error.message;
-    return sendJson(res, 500, { error: message });
+    const status = error.name === "AbortError" ? 504 : error.statusCode || 500;
+    return sendJson(res, status, {
+      error: message,
+      account: publicAccount(store.getAccount(account.id))
+    });
   } finally {
     clearTimeout(timeout);
+    activeGenerations.delete(account.id);
   }
+}
+
+async function handleCheckout(req, res) {
+  const account = getOrCreateAccount(req, res);
+  if (!billingLive || !supportEmail) {
+    return sendJson(res, 503, { error: "支付功能尚未开放" });
+  }
+  if (!account.email) {
+    return sendJson(res, 401, { error: "请先验证邮箱再购买点数", code: "EMAIL_REQUIRED" });
+  }
+  const body = await readJson(req);
+  const session = await billing.createCheckoutSession({ accountId: account.id, packId: cleanText(body.packId, 32) });
+  return sendJson(res, 200, { url: session.url });
+}
+
+async function handleAuthRequest(req, res) {
+  const account = getOrCreateAccount(req, res);
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!email) {
+    return sendJson(res, 400, { error: "请输入有效邮箱" });
+  }
+  if (!canRequestLoginCode(req, email)) {
+    return sendJson(res, 429, { error: "验证码发送过于频繁，请稍后再试" });
+  }
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    return sendJson(res, 503, { error: "邮箱登录功能尚未配置" });
+  }
+
+  const code = String(crypto.randomInt(100000, 1000000));
+  const codeHash = hashLoginCode(email, code);
+  store.saveLoginCode(email, codeHash, Date.now() + 10 * 60 * 1000);
+  await sendLoginCode(email, code);
+  return sendJson(res, 200, { ok: true, expiresIn: 600, account: publicAccount(account) });
+}
+
+async function handleAuthVerify(req, res) {
+  const account = getOrCreateAccount(req, res);
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  const code = String(body.code || "").trim();
+  if (!email || !/^\d{6}$/.test(code)) {
+    return sendJson(res, 400, { error: "邮箱或验证码格式不正确" });
+  }
+
+  const loginCode = store.getLoginCode(email);
+  if (!loginCode || loginCode.expires_at < Date.now() || loginCode.attempts >= 5) {
+    store.deleteLoginCode(email);
+    return sendJson(res, 400, { error: "验证码无效或已过期" });
+  }
+
+  const expected = Buffer.from(loginCode.code_hash);
+  const received = Buffer.from(hashLoginCode(email, code));
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+    store.incrementLoginAttempt(email);
+    return sendJson(res, 400, { error: "验证码不正确" });
+  }
+
+  const linkedAccountId = store.linkEmail(account.id, email);
+  setAccountCookie(res, linkedAccountId);
+  return sendJson(res, 200, { ok: true, account: publicAccount(store.getAccount(linkedAccountId)) });
+}
+
+async function handleStripeWebhook(req, res) {
+  const rawBody = await readRaw(req, 1024 * 1024);
+  const event = billing.parseWebhook(rawBody, req.headers["stripe-signature"]);
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data && event.data.object;
+    const metadata = session && session.metadata;
+    const pack = creditPacks.find((item) => item.id === (metadata && metadata.pack_id));
+    const accountId = metadata && metadata.account_id;
+    const isValid =
+      session &&
+      session.payment_status === "paid" &&
+      accountId &&
+      pack &&
+      Number(session.amount_total) === pack.amount &&
+      String(session.currency).toLowerCase() === pack.currency;
+
+    if (isValid) {
+      store.ensureAccount(accountId, 0);
+      store.recordPayment({
+        sessionId: session.id,
+        accountId,
+        amountTotal: pack.amount,
+        currency: pack.currency,
+        credits: pack.credits
+      });
+    }
+  }
+
+  return sendJson(res, 200, { received: true });
 }
 
 function readJson(req) {
@@ -184,6 +357,158 @@ function readJson(req) {
     });
     req.on("error", reject);
   });
+}
+
+function readRaw(req, maxLength) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > maxLength) {
+        req.destroy();
+        reject(new Error("Request body is too large."));
+      }
+    });
+    req.on("end", () => resolve(raw));
+    req.on("error", reject);
+  });
+}
+
+function getOrCreateAccount(req, res) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const accountId = verifyAccountToken(cookies.image2_account) || crypto.randomUUID();
+  const account = store.ensureAccount(accountId, starterCredits, trialKeyForRequest(req));
+  if (!cookies.image2_account || !verifyAccountToken(cookies.image2_account)) {
+    setAccountCookie(res, accountId);
+  }
+  return account;
+}
+
+function setAccountCookie(res, accountId) {
+  appendHeader(
+    res,
+    "Set-Cookie",
+    `image2_account=${signAccountToken(accountId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${
+      process.env.NODE_ENV === "production" ? "; Secure" : ""
+    }`
+  );
+}
+
+function clearAccountCookie(res) {
+  appendHeader(
+    res,
+    "Set-Cookie",
+    `image2_account=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`
+  );
+}
+
+function trialKeyForRequest(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const address = forwarded || (req.socket && req.socket.remoteAddress) || "unknown";
+  const agent = String(req.headers["user-agent"] || "unknown").slice(0, 240);
+  return crypto.createHmac("sha256", appSecret).update(`${address}\n${agent}`).digest("hex");
+}
+
+function publicAccount(account) {
+  return {
+    email: account && account.email ? account.email : null,
+    isAuthenticated: Boolean(account && account.email),
+    credits: account ? account.credits : 0,
+    generationCost: 1,
+    starterCredits,
+    authEnabled: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+    billingEnabled: Boolean(
+      billingLive && supportEmail && process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET
+    ),
+    packs: creditPacks.map(({ id, name, credits, label }) => ({ id, name, credits, label }))
+  };
+}
+
+function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return "";
+  }
+  return email;
+}
+
+function hashLoginCode(email, code) {
+  return crypto.createHmac("sha256", appSecret).update(`${email}\n${code}`).digest("hex");
+}
+
+function canRequestLoginCode(req, email) {
+  const key = `${trialKeyForRequest(req)}:${email}`;
+  const now = Date.now();
+  const windowStart = now - 15 * 60 * 1000;
+  const recent = (authRequestWindows.get(key) || []).filter((time) => time > windowStart);
+  if (recent.length >= 3) {
+    return false;
+  }
+  recent.push(now);
+  authRequestWindows.set(key, recent);
+  return true;
+}
+
+async function sendLoginCode(email, code) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM,
+      to: [email],
+      subject: "Image 2 Studio 登录验证码",
+      html: `<div style="font-family:Arial,sans-serif;color:#161a22"><h2>登录验证码</h2><p>你的验证码是：</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>10 分钟内有效。请勿转发给他人。</p></div>`
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data.message || (data.error && data.error.message) || "验证码邮件发送失败";
+    const error = new Error(message);
+    error.statusCode = 502;
+    throw error;
+  }
+}
+
+function signAccountToken(accountId) {
+  const signature = crypto.createHmac("sha256", appSecret).update(accountId).digest("base64url");
+  return `${accountId}.${signature}`;
+}
+
+function verifyAccountToken(token) {
+  const [accountId, signature] = String(token || "").split(".");
+  if (!/^[0-9a-f-]{36}$/i.test(accountId || "") || !signature) {
+    return null;
+  }
+  const expected = crypto.createHmac("sha256", appSecret).update(accountId).digest("base64url");
+  const left = Buffer.from(expected);
+  const right = Buffer.from(signature);
+  return left.length === right.length && crypto.timingSafeEqual(left, right) ? accountId : null;
+}
+
+function parseCookies(header) {
+  return Object.fromEntries(
+    String(header)
+      .split(";")
+      .map((item) => item.trim().split("="))
+      .filter(([key, value]) => key && value)
+      .map(([key, value]) => [key, decodeURIComponent(value)])
+  );
+}
+
+function appendHeader(res, name, value) {
+  const current = res.getHeader(name);
+  res.setHeader(name, current ? [].concat(current, value) : value);
+}
+
+function normalizePublicUrl(value) {
+  const url = new URL(String(value || "").trim());
+  if (!new Set(["http:", "https:"]).has(url.protocol)) {
+    throw new Error("PUBLIC_APP_URL must use HTTP or HTTPS.");
+  }
+  return url.toString().replace(/\/+$/, "");
 }
 
 function cleanText(value, maxLength) {
@@ -233,6 +558,7 @@ function sendFile(filePath, res, headOnly) {
   const ext = path.extname(filePath).toLowerCase();
   const type = mimeTypes[ext] || "application/octet-stream";
 
+  applySecurityHeaders(res);
   res.writeHead(200, {
     "Content-Type": type,
     "Cache-Control": ext === ".html" ? "no-store" : "public, max-age=3600"
@@ -246,11 +572,20 @@ function sendFile(filePath, res, headOnly) {
 }
 
 function sendJson(res, status, data) {
+  applySecurityHeaders(res);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(data));
+}
+
+function applySecurityHeaders(res) {
+  res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 }
 
 function loadEnvFile(envPath) {

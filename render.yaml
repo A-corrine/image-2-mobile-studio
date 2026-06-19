@@ -15,3 +15,23 @@ services:
         value: https://openclaw-api.com
       - key: OPENAI_API_KEY
         sync: false
+      - key: APP_SECRET
+        generateValue: true
+      - key: DATABASE_PATH
+        value: ./data/app.db
+      - key: STARTER_CREDITS
+        value: 3
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: BILLING_ENABLED
+        value: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: BUSINESS_NAME
+        value: Image 2 Studio
+      - key: SUPPORT_EMAIL
+        sync: false

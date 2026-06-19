@@ -18,6 +18,8 @@ function getConfig() {
     model: process.env.OPENAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2",
     apiBaseUrl,
     hasApiKey: Boolean(process.env.OPENAI_API_KEY),
+    businessName: process.env.BUSINESS_NAME || "Image 2 Studio",
+    supportEmail: process.env.SUPPORT_EMAIL || "",
     sizes: Array.from(sizes),
     qualities: Array.from(qualities),
     formats: Array.from(formats)

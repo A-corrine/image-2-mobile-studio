@@ -16,10 +16,36 @@ const toast = document.querySelector("#toast");
 const historySection = document.querySelector("#historySection");
 const historyGrid = document.querySelector("#historyGrid");
 const clearHistoryButton = document.querySelector("#clearHistoryButton");
+const creditButton = document.querySelector("#creditButton");
+const creditCount = document.querySelector("#creditCount");
+const pricingDialog = document.querySelector("#pricingDialog");
+const closePricingButton = document.querySelector("#closePricingButton");
+const packList = document.querySelector("#packList");
+const billingStatus = document.querySelector("#billingStatus");
+const accountButton = document.querySelector("#accountButton");
+const accountButtonText = document.querySelector("#accountButtonText");
+const authDialog = document.querySelector("#authDialog");
+const closeAuthButton = document.querySelector("#closeAuthButton");
+const authDialogTitle = document.querySelector("#authDialogTitle");
+const emailForm = document.querySelector("#emailForm");
+const emailInput = document.querySelector("#emailInput");
+const sendCodeButton = document.querySelector("#sendCodeButton");
+const codeForm = document.querySelector("#codeForm");
+const codeInput = document.querySelector("#codeInput");
+const codeEmail = document.querySelector("#codeEmail");
+const verifyCodeButton = document.querySelector("#verifyCodeButton");
+const changeEmailButton = document.querySelector("#changeEmailButton");
+const signedInPanel = document.querySelector("#signedInPanel");
+const signedInEmail = document.querySelector("#signedInEmail");
+const logoutButton = document.querySelector("#logoutButton");
+const authStatus = document.querySelector("#authStatus");
+const supportLink = document.querySelector("#supportLink");
 
 const historyKey = "image2-studio-history";
 let lastResult = null;
 let toastTimer = 0;
+let accountState = null;
+let resumePricingAfterLogin = false;
 
 const polishPhrases = {
   photo: "真实摄影质感，主体清晰，光影自然，细节丰富，适合移动端竖屏展示",
@@ -37,6 +63,7 @@ function init() {
   updatePreviewRatio();
   renderHistory();
   loadConfig();
+  loadAccount();
 
   promptInput.addEventListener("input", updateCount);
   composer.addEventListener("submit", generateImage);
@@ -45,6 +72,24 @@ function init() {
   shareButton.addEventListener("click", shareImage);
   copyButton.addEventListener("click", copyPrompt);
   clearHistoryButton.addEventListener("click", clearHistory);
+  creditButton.addEventListener("click", openPricing);
+  closePricingButton.addEventListener("click", () => pricingDialog.close());
+  pricingDialog.addEventListener("click", (event) => {
+    if (event.target === pricingDialog) {
+      pricingDialog.close();
+    }
+  });
+  accountButton.addEventListener("click", () => openAuth(false));
+  closeAuthButton.addEventListener("click", () => authDialog.close());
+  emailForm.addEventListener("submit", requestLoginCode);
+  codeForm.addEventListener("submit", verifyLoginCode);
+  changeEmailButton.addEventListener("click", showEmailStep);
+  logoutButton.addEventListener("click", logout);
+  authDialog.addEventListener("click", (event) => {
+    if (event.target === authDialog) {
+      authDialog.close();
+    }
+  });
 
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.addEventListener("click", () => {
@@ -59,11 +104,238 @@ function init() {
   });
 }
 
+async function loadAccount() {
+  try {
+    const response = await fetch("/api/account", { cache: "no-store" });
+    const account = await response.json();
+    if (!response.ok) {
+      throw new Error(account.error || "无法读取点数");
+    }
+    updateAccount(account);
+    handleCheckoutReturn();
+  } catch (error) {
+    creditCount.textContent = "--";
+    billingStatus.textContent = error.message || "暂时无法读取点数";
+  }
+}
+
+function updateAccount(account) {
+  if (!account) {
+    return;
+  }
+  accountState = account;
+  creditCount.textContent = String(account.credits);
+  accountButtonText.textContent = account.email ? shortEmail(account.email) : "登录";
+  renderPacks();
+}
+
+function renderPacks() {
+  packList.innerHTML = "";
+  const packs = (accountState && accountState.packs) || [];
+  packs.forEach((pack) => {
+    const item = document.createElement("div");
+    item.className = "pack-item";
+    const detail = document.createElement("div");
+    detail.innerHTML = `<strong>${pack.name}</strong><span>${pack.credits} 次生成</span>`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "buy-button";
+    button.textContent = pack.label;
+    button.disabled = !accountState.billingEnabled || !accountState.authEnabled;
+    button.addEventListener("click", () => startCheckout(pack.id, button));
+    item.append(detail, button);
+    packList.append(item);
+  });
+  if (accountState && !accountState.authEnabled) {
+    billingStatus.textContent = "邮箱登录正在配置，暂时无法购买。";
+  } else if (accountState && !accountState.billingEnabled) {
+    billingStatus.textContent = "支付功能正在配置，暂时无法购买。";
+  } else if (accountState && !accountState.isAuthenticated) {
+    billingStatus.textContent = "购买前需要先验证邮箱，点数才能跨设备恢复。";
+  } else {
+    billingStatus.textContent = "";
+  }
+}
+
+function openPricing() {
+  if (typeof pricingDialog.showModal === "function") {
+    pricingDialog.showModal();
+  }
+}
+
+async function startCheckout(packId, button) {
+  if (!accountState || !accountState.isAuthenticated) {
+    resumePricingAfterLogin = true;
+    pricingDialog.close();
+    openAuth(true);
+    return;
+  }
+  button.disabled = true;
+  billingStatus.textContent = "正在打开支付页面...";
+  try {
+    const response = await fetch("/api/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packId })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.url) {
+      if (data.code === "EMAIL_REQUIRED") {
+        resumePricingAfterLogin = true;
+        pricingDialog.close();
+        openAuth(true);
+      }
+      throw new Error(data.error || "无法创建支付订单");
+    }
+    window.location.assign(data.url);
+  } catch (error) {
+    billingStatus.textContent = error.message || "无法创建支付订单";
+    button.disabled = false;
+  }
+}
+
+function openAuth(fromPurchase) {
+  resumePricingAfterLogin = Boolean(fromPurchase);
+  authStatus.textContent = "";
+  if (accountState && accountState.isAuthenticated) {
+    authDialogTitle.textContent = "账户信息";
+    emailForm.hidden = true;
+    codeForm.hidden = true;
+    signedInPanel.hidden = false;
+    signedInEmail.textContent = accountState.email;
+  } else {
+    showEmailStep();
+  }
+  if (typeof authDialog.showModal === "function") {
+    authDialog.showModal();
+  }
+}
+
+function showEmailStep() {
+  authDialogTitle.textContent = "邮箱登录";
+  emailForm.hidden = false;
+  codeForm.hidden = true;
+  signedInPanel.hidden = true;
+  authStatus.textContent = "";
+  setTimeout(() => emailInput.focus(), 0);
+}
+
+async function requestLoginCode(event) {
+  event.preventDefault();
+  const email = emailInput.value.trim();
+  sendCodeButton.disabled = true;
+  authStatus.textContent = "正在发送验证码...";
+  try {
+    const response = await fetch("/api/auth/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || "验证码发送失败");
+    }
+    codeEmail.textContent = email;
+    codeForm.dataset.email = email;
+    emailForm.hidden = true;
+    codeForm.hidden = false;
+    authStatus.textContent = "";
+    codeInput.value = "";
+    codeInput.focus();
+  } catch (error) {
+    authStatus.textContent = error.message || "验证码发送失败";
+  } finally {
+    sendCodeButton.disabled = false;
+  }
+}
+
+async function verifyLoginCode(event) {
+  event.preventDefault();
+  verifyCodeButton.disabled = true;
+  authStatus.textContent = "正在验证...";
+  try {
+    const response = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: codeForm.dataset.email, code: codeInput.value.trim() })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || "验证失败");
+    }
+    updateAccount(data.account);
+    authDialog.close();
+    showToast("登录成功，点数已同步");
+    if (resumePricingAfterLogin) {
+      resumePricingAfterLogin = false;
+      openPricing();
+    }
+  } catch (error) {
+    authStatus.textContent = error.message || "验证失败";
+  } finally {
+    verifyCodeButton.disabled = false;
+  }
+}
+
+async function logout() {
+  logoutButton.disabled = true;
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+    authDialog.close();
+    accountState = null;
+    await loadAccount();
+    showToast("已退出登录");
+  } catch {
+    authStatus.textContent = "退出失败，请稍后再试";
+  } finally {
+    logoutButton.disabled = false;
+  }
+}
+
+function shortEmail(email) {
+  const [name, domain] = String(email).split("@");
+  if (!domain) {
+    return "已登录";
+  }
+  return `${name.slice(0, 3)}…@${domain}`;
+}
+
+function handleCheckoutReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const checkout = params.get("checkout");
+  if (!checkout) {
+    return;
+  }
+  history.replaceState({}, "", window.location.pathname);
+  if (checkout === "success") {
+    showToast("支付已完成，点数正在到账");
+    [1200, 3000, 6000].forEach((delay) => setTimeout(refreshAccount, delay));
+  } else {
+    showToast("已取消支付");
+  }
+}
+
+async function refreshAccount() {
+  try {
+    const response = await fetch("/api/account", { cache: "no-store" });
+    const account = await response.json();
+    if (response.ok) {
+      updateAccount(account);
+    }
+  } catch {
+    // A later refresh or page load will reconcile the balance.
+  }
+}
+
 async function loadConfig() {
   try {
     const response = await fetch("/api/config");
     const config = await response.json();
     modelPill.textContent = displayModelName(config.model);
+    if (config.supportEmail) {
+      supportLink.href = `mailto:${config.supportEmail}`;
+      supportLink.hidden = false;
+    }
     if (!config.hasApiKey) {
       showToast("先在 .env 中设置 OPENAI_API_KEY");
     }
@@ -101,7 +373,14 @@ async function generateImage(event) {
     });
     const data = await response.json().catch(() => ({}));
 
+    if (data.account) {
+      updateAccount(data.account);
+    }
+
     if (!response.ok) {
+      if (data.code === "INSUFFICIENT_CREDITS" || response.status === 402) {
+        openPricing();
+      }
       throw new Error(data.error || "生成失败");
     }
 
@@ -114,6 +393,7 @@ async function generateImage(event) {
     };
 
     showImage(lastResult.image);
+    updateAccount(data.account);
     await saveToHistory(lastResult);
     renderHistory();
     showToast("图片已生成");

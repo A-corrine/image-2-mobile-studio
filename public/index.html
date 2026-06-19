@@ -15,7 +15,19 @@
           <p class="eyebrow">移动端生图</p>
           <h1>Image 2 Studio</h1>
         </div>
-        <div class="model-pill" id="modelPill">Image 2</div>
+        <div class="account-tools">
+          <div class="model-pill" id="modelPill">Image 2</div>
+          <div class="account-row">
+            <button class="credit-button" id="creditButton" type="button" aria-label="购买点数">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>
+              <span id="creditCount">--</span> 点
+            </button>
+            <button class="account-button" id="accountButton" type="button" title="账户" aria-label="账户">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM5 21a7 7 0 0 1 14 0"/></svg>
+              <span id="accountButtonText">登录</span>
+            </button>
+          </div>
+        </div>
       </header>
 
       <section class="preview-zone" aria-live="polite">
@@ -132,6 +144,64 @@
         </div>
         <div class="history-grid" id="historyGrid"></div>
       </section>
+
+      <footer class="site-footer">
+        <nav aria-label="服务信息">
+          <a href="/terms.html">服务条款</a>
+          <a href="/privacy.html">隐私政策</a>
+          <a href="/refund.html">退款政策</a>
+        </nav>
+        <a id="supportLink" hidden>联系客服</a>
+      </footer>
+
+      <dialog class="pricing-dialog" id="pricingDialog">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">按需购买</p>
+            <h2>购买生成点数</h2>
+          </div>
+          <button class="icon-button" id="closePricingButton" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <p class="pricing-note">每次生成消耗 1 点。支付成功后点数自动到账。</p>
+        <div class="pack-list" id="packList"></div>
+        <p class="billing-status" id="billingStatus"></p>
+      </dialog>
+
+      <dialog class="auth-dialog" id="authDialog">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">账户</p>
+            <h2 id="authDialogTitle">邮箱登录</h2>
+          </div>
+          <button class="icon-button" id="closeAuthButton" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+
+        <form class="auth-form" id="emailForm">
+          <p>登录后，购买的点数可以在其他设备恢复。</p>
+          <label for="emailInput">邮箱</label>
+          <input id="emailInput" type="email" autocomplete="email" required placeholder="name@example.com">
+          <button class="primary-button" id="sendCodeButton" type="submit">发送验证码</button>
+        </form>
+
+        <form class="auth-form" id="codeForm" hidden>
+          <p>验证码已发送至 <strong id="codeEmail"></strong></p>
+          <label for="codeInput">6 位验证码</label>
+          <input id="codeInput" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required placeholder="000000">
+          <button class="primary-button" id="verifyCodeButton" type="submit">验证并登录</button>
+          <button class="text-button" id="changeEmailButton" type="button">更换邮箱</button>
+        </form>
+
+        <div class="signed-in-panel" id="signedInPanel" hidden>
+          <p>已登录</p>
+          <strong id="signedInEmail"></strong>
+          <button class="secondary-button" id="logoutButton" type="button">退出登录</button>
+        </div>
+        <p class="auth-status" id="authStatus"></p>
+      </dialog>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </main>

@@ -4,9 +4,10 @@
   "private": true,
   "description": "Mobile-first image generation product powered by OpenAI image models.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   }
 }
